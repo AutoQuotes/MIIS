@@ -13,7 +13,28 @@ namespace MIISHandler
     /// Renders the final HTML from Markdown using the spcified template or CSS file
     /// </summary>
     public static class HTMLRenderer
-    {
+    {        
+        private static Ganss.XSS.HtmlSanitizer __htmlSanitizer;
+        private static Ganss.XSS.HtmlSanitizer HtmlSanitizer
+        {
+            get
+            {
+                if (__htmlSanitizer == null)
+                    lock(typeof(HTMLRenderer))
+                        if (__htmlSanitizer == null)
+                        {
+                            //the sanitizer should be thread safe if initialization is on a singlr thread.
+                            //https://github.com/mganss/HtmlSanitizer/blob/master/README.md#thread-safety
+
+                            var allowedTags = new HashSet<string>(Ganss.XSS.HtmlSanitizer.DefaultAllowedTags, StringComparer.Ordinal);
+                            allowedTags.Add("style");
+                            __htmlSanitizer = new Ganss.XSS.HtmlSanitizer(allowedTags: allowedTags);
+                        }
+
+                return __htmlSanitizer;
+            }
+        }
+
         #region Constants
         //This is simply a plain HTML5 file to show the contents inside if there's no template specified, 
         //to ensure at least a valid HTML5 page returned and not just a bunch of HTML tags
@@ -52,9 +73,14 @@ namespace MIISHandler
                 md.Dependencies.AddRange(templateDependencies);
             }
 
+            string rawHtml = md.RawHTML;
+
+            if (Common.GetFieldValueFromConfig("SanitizeHTML", "0") == "1")
+                rawHtml = HtmlSanitizer.Sanitize(rawHtml, baseUrl: ctx.Request.Url.ToString());
+
             //First process the "content" field with the main HTML content transformed from Markdown
             //This allows to use other fields inside the content itself, not only in the templates
-            string finalContent = TemplatingHelper.ReplacePlaceHolder(template, "content", md.RawHTML);
+            string finalContent = TemplatingHelper.ReplacePlaceHolder(template, "content", rawHtml);
 
             //Process fragments (other files inserted into the current one or template)
             finalContent = ProcessFragments(finalContent, md, ctx);
